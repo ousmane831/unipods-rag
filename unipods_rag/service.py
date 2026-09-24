@@ -27,7 +27,7 @@ from .schemas import (
 )
 from .source_log import SourceLog
 from .textutil import detect_language, extract_links
-from .vector_store import ChromaStore, VectorStore
+from .vector_store import PgVectorStore, VectorStore
 
 log = logging.getLogger(__name__)
 
@@ -55,14 +55,21 @@ class RagService:
     ) -> None:
         self.s = settings or Settings.from_env()
         self.tz = ZoneInfo(self.s.timezone)
+
         self.embedder = embedder or get_embedder(self.s)
-        self.store = store or ChromaStore(self.s.chroma_path, self.s.collection, self.embedder.name)
-        self.log = source_log or SourceLog(self.s.source_log_path)
+
+        self.store = store or PgVectorStore(
+            self.s.database_url
+        )
+
+        self.log = source_log or SourceLog(
+            self.s.database_url
+        )
+
         self.generator = generator or get_generator(self.s)
         self._fallback = ExtractiveGenerator()
         self.retriever = Retriever(self.store, self.embedder, self.s)
         self.now_fn = now_fn or (lambda: datetime.now(timezone.utc))
-
     # ------------------------------------------------------------------ ingestion
     def _add(self, chunks: list[Chunk]) -> None:
         if not chunks:

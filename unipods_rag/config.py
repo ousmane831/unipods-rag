@@ -90,6 +90,15 @@ class Settings:
     api_key: str | None = None
     ingest_api_key: str | None = None
     cors_origins: tuple[str, ...] = ()
+    
+    # ------------------------------------------------------------------
+    # Stockage
+    # ------------------------------------------------------------------
+    data_dir: str = "./data"
+    collection: str = "unipods_chunks"
+
+    # PostgreSQL / Supabase
+    database_url: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -105,6 +114,7 @@ class Settings:
                 "COLLECTION",
                 d.collection,
             ),
+            database_url=_opt("DATABASE_URL"),
 
             # Embeddings
             embedding_backend=os.getenv(

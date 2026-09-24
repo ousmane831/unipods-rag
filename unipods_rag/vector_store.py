@@ -12,6 +12,11 @@ from dataclasses import dataclass
 
 from .schemas import Filters
 
+import psycopg
+from psycopg.types.json import Jsonb
+
+
+
 
 @dataclass
 class StoredChunk:
@@ -154,3 +159,272 @@ class ChromaStore(VectorStore):
     def reset(self) -> None:
         self._client.delete_collection(self._name)
         self._col = self._client.get_or_create_collection(self._name, metadata={"hnsw:space": "cosine"})
+
+
+class PgVectorStore(VectorStore):
+    """Vector store PostgreSQL + pgvector utilisé avec Supabase."""
+
+    def __init__(self, database_url: str) -> None:
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL est obligatoire pour utiliser PgVectorStore."
+            )
+
+        self.database_url = database_url
+
+    def _connect(self):
+        return psycopg.connect(self.database_url)
+
+    @staticmethod
+    def _vector_literal(vector: list[float]) -> str:
+        """Convertit un vecteur Python au format accepté par pgvector."""
+        return "[" + ",".join(str(float(v)) for v in vector) + "]"
+
+    def upsert(
+        self,
+        ids: list[str],
+        texts: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict],
+    ) -> None:
+        if not ids:
+            return
+
+        if not (
+            len(ids)
+            == len(texts)
+            == len(embeddings)
+            == len(metadatas)
+        ):
+            raise ValueError(
+                "ids, texts, embeddings et metadatas "
+                "doivent avoir la même longueur."
+            )
+
+        rows = []
+
+        for chunk_id, text, embedding, metadata in zip(
+            ids,
+            texts,
+            embeddings,
+            metadatas,
+        ):
+            rows.append(
+                (
+                    chunk_id,
+                    text,
+                    metadata.get("source_type"),
+                    metadata.get("channel"),
+                    metadata.get("ts_start"),
+                    metadata.get("ts_end"),
+                    Jsonb(metadata),
+                    self._vector_literal(embedding),
+                )
+            )
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO public.rag_chunks (
+                        id,
+                        text,
+                        source_type,
+                        channel,
+                        ts_start,
+                        ts_end,
+                        metadata,
+                        embedding
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s::extensions.vector
+                    )
+                    ON CONFLICT (id)
+                    DO UPDATE SET
+                        text = EXCLUDED.text,
+                        source_type = EXCLUDED.source_type,
+                        channel = EXCLUDED.channel,
+                        ts_start = EXCLUDED.ts_start,
+                        ts_end = EXCLUDED.ts_end,
+                        metadata = EXCLUDED.metadata,
+                        embedding = EXCLUDED.embedding
+                    """,
+                    rows,
+                )
+
+    def query(
+        self,
+        embedding: list[float],
+        k: int,
+        filters: Filters | None = None,
+    ) -> list[StoredChunk]:
+        conditions: list[str] = []
+        params: list = []
+
+        if filters:
+            if filters.source_type:
+                conditions.append("source_type = %s")
+                params.append(filters.source_type.value)
+
+            if filters.channel:
+                conditions.append("channel = %s")
+                params.append(filters.channel)
+
+            if filters.since:
+                conditions.append("ts_start >= %s")
+                params.append(_epoch(filters.since))
+
+            if filters.until:
+                conditions.append("ts_start < %s")
+                params.append(_epoch(filters.until))
+
+        where = ""
+
+        if conditions:
+            where = "WHERE " + " AND ".join(conditions)
+
+        vector = self._vector_literal(embedding)
+
+        # Le même vecteur sert au calcul du score et au tri.
+        query_params = [vector] + params + [vector, k]
+
+        sql = f"""
+            SELECT
+                id,
+                text,
+                metadata,
+                GREATEST(
+                    0.0,
+                    LEAST(
+                        1.0,
+                        1.0 - (
+                            embedding
+                            <=> %s::extensions.vector
+                        )
+                    )
+                ) AS score
+            FROM public.rag_chunks
+            {where}
+            ORDER BY
+                embedding <=> %s::extensions.vector
+            LIMIT %s
+        """
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, query_params)
+                rows = cur.fetchall()
+
+        return [
+            StoredChunk(
+                id=row[0],
+                text=row[1],
+                metadata=row[2],
+                score=float(row[3]),
+            )
+            for row in rows
+        ]
+
+    def get(
+        self,
+        filters: Filters | None = None,
+        limit: int = 1000,
+    ) -> list[StoredChunk]:
+        conditions: list[str] = []
+        params: list = []
+
+        if filters:
+            if filters.source_type:
+                conditions.append("source_type = %s")
+                params.append(filters.source_type.value)
+
+            if filters.channel:
+                conditions.append("channel = %s")
+                params.append(filters.channel)
+
+            if filters.since:
+                conditions.append("ts_start >= %s")
+                params.append(_epoch(filters.since))
+
+            if filters.until:
+                conditions.append("ts_start < %s")
+                params.append(_epoch(filters.until))
+
+        where = ""
+
+        if conditions:
+            where = "WHERE " + " AND ".join(conditions)
+
+        params.append(limit)
+
+        sql = f"""
+            SELECT id, text, metadata
+            FROM public.rag_chunks
+            {where}
+            ORDER BY ts_start
+            LIMIT %s
+        """
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+
+        return [
+            StoredChunk(
+                id=row[0],
+                text=row[1],
+                metadata=row[2],
+            )
+            for row in rows
+        ]
+
+    def delete_where(self, key: str, value: str) -> None:
+        # Ces champs ont leur propre colonne.
+        columns = {
+            "channel",
+            "source_type",
+        }
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                if key in columns:
+                    cur.execute(
+                        f"""
+                        DELETE FROM public.rag_chunks
+                        WHERE {key} = %s
+                        """,
+                        (value,),
+                    )
+                else:
+                    # window_id, call_id, ref_id, etc.
+                    # restent dans metadata JSONB.
+                    cur.execute(
+                        """
+                        DELETE FROM public.rag_chunks
+                        WHERE metadata ->> %s = %s
+                        """,
+                        (key, value),
+                    )
+
+    def count(self) -> int:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM public.rag_chunks"
+                )
+                return cur.fetchone()[0]
+
+    def reset(self) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "TRUNCATE TABLE public.rag_chunks"
+                )

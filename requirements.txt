@@ -6,6 +6,7 @@ anthropic>=0.40
 python-dotenv>=1.0
 tzdata>=2024.1
 ollama>=0.6
+psycopg[binary]>=3.2
 
 # tests
 pytest>=8.0
