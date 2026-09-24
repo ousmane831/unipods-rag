@@ -74,14 +74,54 @@ class SentenceTransformerEmbedder:
             text = f"query: {text}"
         return self._model.encode([text], normalize_embeddings=True, show_progress_bar=False)[0].tolist()
 
+class FastEmbedEmbedder:
+    """Embeddings sémantiques multilingues via ONNX, sans PyTorch."""
 
+    def __init__(self, model_name: str = "intfloat/multilingual-e5-small") -> None:
+        try:
+            from fastembed import TextEmbedding
+            from fastembed.common.model_description import PoolingType, ModelSource
+        except ImportError as exc:
+            raise RuntimeError(
+                "Le backend 'fastembed' demande : pip install -r requirements-ml.txt"
+            ) from exc
+
+        # Enregistre multilingual-e5-small comme modèle FastEmbed personnalisé.
+        TextEmbedding.add_custom_model(
+            model=model_name,
+            pooling=PoolingType.MEAN,
+            normalization=True,
+            sources=ModelSource(hf=model_name),
+            dim=384,
+            model_file="onnx/model.onnx",
+        )
+
+        self._model = TextEmbedding(model_name=model_name)
+        self.name = f"fastembed:{model_name}"
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        # E5 recommande le préfixe "passage:" pour les documents.
+        prepared = [f"passage: {text}" for text in texts]
+        return [embedding.tolist() for embedding in self._model.embed(prepared)]
+
+    def embed_query(self, text: str) -> list[float]:
+        # E5 recommande le préfixe "query:" pour les requêtes.
+        embedding = next(self._model.embed([f"query: {text}"]))
+        return embedding.tolist()
 def get_embedder(settings: Settings) -> Embedder:
+    if settings.embedding_backend == "fastembed":
+        return FastEmbedEmbedder(settings.embedding_model)
+
     if settings.embedding_backend == "sentence-transformers":
         return SentenceTransformerEmbedder(settings.embedding_model)
+
     if settings.embedding_backend == "hash":
         log.warning(
             "Embedder 'hash' actif : mode développement. Pour la production, "
-            "EMBEDDING_BACKEND=sentence-transformers."
+            "utiliser EMBEDDING_BACKEND=fastembed."
         )
         return HashEmbedder()
-    raise ValueError(f"EMBEDDING_BACKEND inconnu : {settings.embedding_backend!r}")
+
+    raise ValueError(
+        f"EMBEDDING_BACKEND inconnu : {settings.embedding_backend!r}"
+    )

@@ -98,27 +98,23 @@ class SourceLog:
             for row in rows
         ]
 
-    def all_windows(
-        self,
-        window_seconds: int,
-    ) -> list[tuple[str, int]]:
+    def all_windows(self, window_seconds: int) -> list[tuple[str, int]]:
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT DISTINCT
                         channel,
-                        ts - MOD(ts, %s)
+                        ts - MOD(ts, %s) AS window_start
                     FROM public.rag_messages
-                    ORDER BY channel, ts - MOD(ts, %s)
+                    ORDER BY channel, window_start
                     """,
-                    (window_seconds, window_seconds),
+                    (window_seconds,),
                 )
                 rows = cur.fetchall()
 
-        return [(row[0], row[1]) for row in rows]
-
-    # ------------------------------------------------------------ transcripts
+        return [(r[0], r[1]) for r in rows]
+        # ------------------------------------------------------------ transcripts
 
     def upsert_transcript(self, t: Transcript) -> None:
         with self._connect() as conn:
