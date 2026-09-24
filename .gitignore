@@ -1,0 +1,31 @@
+@"
+# Variables d'environnement / secrets
+.env
+
+# Environnement virtuel Python
+env/
+venv/
+.venv/
+
+# Données locales du RAG
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+"@ | Set-Content .gitignore

@@ -1,0 +1,12 @@
+[
+  {"question": "What were the key action items from yesterday's call?", "expect_contains": ["action item", "dataset"], "language": "en"},
+  {"question": "Has anyone shared the submission link yet?", "expect_contains": ["example.org/unipods/submit"], "language": "en"},
+  {"question": "Quel est le lien du formulaire de présence ?", "expect_contains": ["example.org/unipods/attendance"], "language": "fr"},
+  {"question": "What did we decide about the vector database?", "expect_contains": ["chromadb"], "language": "en"},
+  {"question": "When is the demo day rehearsal?", "expect_contains": ["rehearsal", "5pm"], "language": "en"},
+  {"question": "When is the submission deadline?", "expect_contains": ["thursday", "23:59"], "language": "en"},
+  {"question": "Who is booking the demo day room?", "expect_contains": ["book the demo day room"], "language": "en"},
+  {"question": "What chunk size or grouping did the mentor recommend for chat data?", "expect_contains": ["time window"], "language": "en"},
+  {"question": "Which embedding model works on slow connections?", "expect_contains": ["multilingual model"], "language": "en"},
+  {"question": "How long is each team's demo?", "expect_contains": ["5 minutes"], "language": "en"}
+]

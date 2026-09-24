@@ -1,0 +1,2 @@
+# Vrais embeddings sémantiques FR/EN (télécharge un modèle d'environ 120 Mo au premier lancement)
+sentence-transformers>=3.0
