@@ -108,7 +108,57 @@ class FastEmbedEmbedder:
         # E5 recommande le préfixe "query:" pour les requêtes.
         embedding = next(self._model.embed([f"query: {text}"]))
         return embedding.tolist()
+    
+class CohereEmbedder:
+    """Embeddings multilingues via l'API Cohere."""
+
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str = "embed-multilingual-light-v3.0",
+    ) -> None:
+        try:
+            import cohere
+        except ImportError as exc:
+            raise RuntimeError(
+                "Le backend 'cohere' demande : pip install cohere"
+            ) from exc
+
+        if not api_key:
+            raise RuntimeError("COHERE_API_KEY est obligatoire.")
+
+        self.client = cohere.ClientV2(api_key=api_key)
+        self.model_name = model_name
+        self.name = f"cohere:{model_name}"
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+
+        response = self.client.embed(
+            model=self.model_name,
+            texts=texts,
+            input_type="search_document",
+            embedding_types=["float"],
+        )
+
+        return response.embeddings.float
+
+    def embed_query(self, text: str) -> list[float]:
+        response = self.client.embed(
+            model=self.model_name,
+            texts=[text],
+            input_type="search_query",
+            embedding_types=["float"],
+        )
+
+        return response.embeddings.float[0]
 def get_embedder(settings: Settings) -> Embedder:
+    if settings.embedding_backend == "cohere":
+        return CohereEmbedder(
+            api_key=settings.cohere_api_key,
+            model_name=settings.embedding_model,
+        )
     if settings.embedding_backend == "fastembed":
         return FastEmbedEmbedder(settings.embedding_model)
 

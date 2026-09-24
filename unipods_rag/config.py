@@ -99,6 +99,7 @@ class Settings:
 
     # PostgreSQL / Supabase
     database_url: str | None = None
+    cohere_api_key: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -115,7 +116,7 @@ class Settings:
                 d.collection,
             ),
             database_url=_opt("DATABASE_URL"),
-
+            cohere_api_key=_opt("COHERE_API_KEY"),
             # Embeddings
             embedding_backend=os.getenv(
                 "EMBEDDING_BACKEND",
