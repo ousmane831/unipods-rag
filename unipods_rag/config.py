@@ -100,6 +100,7 @@ class Settings:
     # PostgreSQL / Supabase
     database_url: str | None = None
     cohere_api_key: str | None = None
+    whatsapp_reply_url: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -117,6 +118,7 @@ class Settings:
             ),
             database_url=_opt("DATABASE_URL"),
             cohere_api_key=_opt("COHERE_API_KEY"),
+            whatsapp_reply_url=_opt("WHATSAPP_REPLY_URL"),
             # Embeddings
             embedding_backend=os.getenv(
                 "EMBEDDING_BACKEND",

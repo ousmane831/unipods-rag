@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import httpx
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
@@ -102,10 +103,10 @@ def create_router(
     # ---------------------------------------------------------
 
     @router.post(
-        "/ask",
-        response_model=WhatsAppAskResponse,
-        dependencies=[Depends(query_auth)],
-    )
+    "/ask",
+    response_model=WhatsAppAskResponse,
+    dependencies=[Depends(query_auth)],
+)
     def ask(
         payload: WhatsAppAskRequest,
     ) -> WhatsAppAskResponse:
@@ -119,12 +120,30 @@ def create_router(
 
         result = service.ask(internal_request)
 
-        return WhatsAppAskResponse(
+        response = WhatsAppAskResponse(
             jid=payload.jid,
             sender=payload.sender,
             answer=result.answer,
         )
 
+        # Envoi de la réponse au backend WhatsApp de Gabriel
+        if s.whatsapp_reply_url:
+            try:
+                with httpx.Client(timeout=15.0) as client:
+                    client.post(
+                        s.whatsapp_reply_url,
+                        json={
+                            "jid": response.jid,
+                            "sender": response.sender,
+                            "answer": response.answer,
+                        },
+                    ).raise_for_status()
+
+            except httpx.HTTPError as exc:
+                # Le webhook WhatsApp ne doit pas faire échouer le RAG.
+                print(f"Erreur webhook WhatsApp: {exc}")
+
+        return response
     # ---------------------------------------------------------
     # Digest
     # ---------------------------------------------------------
