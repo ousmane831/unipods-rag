@@ -915,7 +915,12 @@ async function ask(question) {
   input.value = ""; autosize();
   const wait = thinking();
   try {
-    const body = { question, language: state.lang };
+    const body = {
+      jid: "120363412042126507@g.us",
+      sender: "web-user",
+      question,
+      language: state.lang
+    };
     if (state.scope) body.filters = { source_type: state.scope };
     const r = await api("/rag/ask", body);
     wait.replaceWith(answerMsg(r));
